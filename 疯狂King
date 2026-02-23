@@ -1,0 +1,272 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { RotateCcw, Bot, User, Layers, Info } from 'lucide-react';
+
+// --- 游戏配置 ---
+const SUITS = [
+  { symbol: '♠️', label: '黑桃', color: 'text-slate-900' },
+  { symbol: '♥️', label: '红心', color: 'text-red-500' },
+  { symbol: '♣️', label: '梅花', color: 'text-slate-900' },
+  { symbol: '♦️', label: '方块', color: 'text-red-500' }
+];
+const VALUES = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
+const createDeck = () => {
+  let deck = [];
+  SUITS.forEach(suit => {
+    VALUES.forEach(value => {
+      deck.push({ 
+        suit: suit.symbol, 
+        value, 
+        color: suit.color, 
+        id: `${value}-${suit.symbol}-${Math.random()}` 
+      });
+    });
+  });
+  return deck.sort(() => Math.random() - 0.5);
+};
+
+export default function HomerCrazyKings() {
+  const [deck, setDeck] = useState([]);
+  const [playerHand, setPlayerHand] = useState([]);
+  const [aiHand, setAiHand] = useState([]);
+  const [discardPile, setDiscardPile] = useState([]);
+  const [activeSuit, setActiveSuit] = useState(null);
+  const [turn, setTurn] = useState('player'); // 'player' | 'ai'
+  const [showSuitPicker, setShowSuitPicker] = useState(false);
+  const [winner, setWinner] = useState(null);
+  const [message, setMessage] = useState('欢迎来到 Homer 疯狂 King!');
+
+  // 初始化游戏逻辑
+  const initGame = useCallback(() => {
+    const newDeck = createDeck();
+    const pHand = newDeck.splice(0, 8);
+    const aHand = newDeck.splice(0, 8);
+    const firstCard = newDeck.pop();
+    
+    setDeck(newDeck);
+    setPlayerHand(pHand);
+    setAiHand(aHand);
+    setDiscardPile([firstCard]);
+    setActiveSuit(firstCard.suit);
+    setWinner(null);
+    setTurn('player');
+    setMessage('你的回合，请出牌或摸牌');
+  }, []);
+
+  useEffect(() => { initGame(); }, [initGame]);
+
+  // --- 核心逻辑 ---
+  const topCard = discardPile[discardPile.length - 1];
+
+  const canPlay = (card) => {
+    if (card.value === 'K') return true; 
+    return card.suit === activeSuit || card.value === topCard.value;
+  };
+
+  const handlePlayCard = (card, isPlayer) => {
+    if (isPlayer && (turn !== 'player' || !canPlay(card))) return;
+
+    if (isPlayer) {
+      setPlayerHand(prev => prev.filter(c => c.id !== card.id));
+    } else {
+      setAiHand(prev => prev.filter(c => c.id !== card.id));
+    }
+    
+    setDiscardPile(prev => [...prev, card]);
+    
+    if (card.value === 'K') {
+      if (isPlayer) {
+        setShowSuitPicker(true);
+        setMessage('打出了万能 K！请选择新花色');
+      } else {
+        const suitsCount = aiHand.reduce((acc, c) => {
+          acc[c.suit] = (acc[c.suit] || 0) + 1;
+          return acc;
+        }, {});
+        const bestSuit = SUITS.reduce((a, b) => (suitsCount[a.symbol] || 0) > (suitsCount[b.symbol] || 0) ? a : b);
+        setActiveSuit(bestSuit.symbol);
+        setTurn('player');
+        setMessage(`AI 打出了 K 并将花色改为 ${bestSuit.symbol}`);
+      }
+    } else {
+      setActiveSuit(card.suit);
+      setTurn(isPlayer ? 'ai' : 'player');
+      setMessage(isPlayer ? 'AI 正在思考...' : '你的回合');
+    }
+  };
+
+  const handleDraw = (isPlayer) => {
+    if (deck.length === 0) {
+      setMessage('牌堆已空，跳过回合');
+      setTurn(isPlayer ? 'ai' : 'player');
+      return;
+    }
+    const newDeck = [...deck];
+    const drawnCard = newDeck.pop();
+    setDeck(newDeck);
+
+    if (isPlayer) {
+      setPlayerHand(prev => [...prev, drawnCard]);
+      if (!canPlay(drawnCard)) {
+        setTimeout(() => setTurn('ai'), 1000);
+        setMessage('摸牌后无路可走，轮到 AI');
+      }
+    } else {
+      setAiHand(prev => [...prev, drawnCard]);
+      setTurn('player');
+    }
+  };
+
+  // AI 回合自动化
+  useEffect(() => {
+    if (turn === 'ai' && !winner && !showSuitPicker) {
+      const timer = setTimeout(() => {
+        const playable = aiHand.find(canPlay);
+        if (playable) handlePlayCard(playable, false);
+        else handleDraw(false);
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [turn, aiHand, winner, showSuitPicker]);
+
+  // 胜利判定
+  useEffect(() => {
+    if (playerHand.length === 0 && deck.length > 0) setWinner('Player');
+    if (aiHand.length === 0 && deck.length > 0) setWinner('AI');
+  }, [playerHand, aiHand, deck.length]);
+
+  return (
+    <div className="min-h-screen bg-[#0f172a] text-white flex flex-col font-sans select-none overflow-hidden">
+      {/* 状态通知栏 */}
+      <div className="bg-blue-600/20 py-2 px-4 text-center text-sm font-medium border-b border-white/10 italic">
+        {message}
+      </div>
+
+      {/* AI 区域 */}
+      <div className="flex-1 flex flex-col items-center justify-center p-4 bg-gradient-to-b from-black/20 to-transparent">
+        <div className="flex items-center gap-2 mb-6 text-slate-400">
+          <Bot size={18} /> <span className="text-xs uppercase tracking-widest">Homer 系统已启动 ({aiHand.length})</span>
+        </div>
+        <div className="flex -space-x-10 md:-space-x-16">
+          {aiHand.map((card, i) => (
+            <Card key={card.id} card={card} isHidden />
+          ))}
+        </div>
+      </div>
+
+      {/* 桌面中央区 */}
+      <div className="flex-1 flex items-center justify-center gap-10 md:gap-32 relative">
+        {/* 摸牌堆 */}
+        <div className="flex flex-col items-center gap-3">
+          <motion.div 
+            whileTap={{ scale: 0.95 }}
+            onClick={() => turn === 'player' && handleDraw(true)}
+            className={`w-20 h-28 md:w-28 md:h-40 bg-gradient-to-br from-indigo-600 to-indigo-900 rounded-xl shadow-2xl border-2 border-white/20 flex items-center justify-center cursor-pointer
+              ${turn === 'player' ? 'ring-4 ring-yellow-400/50 animate-pulse' : 'grayscale opacity-50'}`}
+          >
+            <Layers className="text-white/30" size={32} />
+          </motion.div>
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Deck: {deck.length}</span>
+        </div>
+
+        {/* 弃牌堆 */}
+        <div className="flex flex-col items-center gap-3">
+          <div className="relative">
+            <AnimatePresence mode="popLayout">
+              <Card key={topCard?.id} card={topCard} />
+            </AnimatePresence>
+            <div className="absolute -top-3 -right-3 w-10 h-10 bg-white rounded-full flex items-center justify-center text-2xl shadow-xl border-4 border-yellow-500 animate-bounce">
+              {activeSuit}
+            </div>
+          </div>
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Current Suit</span>
+        </div>
+      </div>
+
+      {/* 玩家手牌区 */}
+      <div className="flex-1 bg-black/40 border-t border-white/5 p-6 flex flex-col items-center justify-end">
+        <div className="flex items-center gap-2 mb-4 text-yellow-500">
+          <User size={18} /> <span className="text-xs uppercase tracking-widest font-bold">你的手牌</span>
+        </div>
+        <div className="flex flex-wrap justify-center gap-3 max-w-6xl">
+          {playerHand.map((card) => (
+            <Card 
+              key={card.id} 
+              card={card} 
+              isSelectable={turn === 'player' && canPlay(card)}
+              onClick={() => handlePlayCard(card, true)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* 万能 K 花色选择器 */}
+      {showSuitPicker && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50">
+          <div className="bg-slate-800 p-10 rounded-[3rem] border border-white/10 text-center shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+            <h2 className="text-3xl font-black italic mb-8 tracking-tight text-yellow-500">选择新花色</h2>
+            <div className="grid grid-cols-2 gap-6">
+              {SUITS.map(s => (
+                <button 
+                  key={s.symbol}
+                  onClick={() => { setActiveSuit(s.symbol); setShowSuitPicker(false); setTurn('ai'); }}
+                  className={`text-5xl p-8 bg-slate-700/50 hover:bg-white hover:scale-110 transition-all rounded-3xl ${s.color}`}
+                >
+                  {s.symbol}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 结算 */}
+      {winner && (
+        <div className="fixed inset-0 bg-indigo-600 flex flex-col items-center justify-center z-[100] text-white">
+          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="text-center">
+            <h1 className="text-8xl font-black italic mb-4 tracking-tighter">
+              {winner === 'Player' ? 'YOU WON!' : 'AI WON!'}
+            </h1>
+            <p className="text-indigo-200 mb-10 text-xl font-medium tracking-wide">
+              {winner === 'Player' ? '太棒了，你战胜了 Homer AI!' : '再接再厉，AI 已经清空了手牌。'}
+            </p>
+            <button 
+              onClick={initGame}
+              className="bg-white text-indigo-600 px-12 py-5 rounded-full font-black text-2xl hover:bg-yellow-400 hover:text-black transition-all shadow-2xl"
+            >
+              再玩一局
+            </button>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- 小型卡牌组件 ---
+function Card({ card, isHidden, isSelectable, onClick }) {
+  return (
+    <motion.div
+      layoutId={card.id}
+      onClick={onClick}
+      whileHover={isSelectable ? { y: -25, rotate: 2 } : {}}
+      className={`relative w-20 h-28 md:w-28 md:h-40 rounded-xl flex items-center justify-center shadow-2xl border-2 transition-shadow
+        ${isHidden ? 'bg-gradient-to-br from-slate-700 to-slate-900 border-white/10' : 'bg-white border-slate-200'}
+        ${isSelectable ? 'ring-4 ring-yellow-400 border-transparent cursor-pointer shadow-yellow-500/20' : ''}`}
+    >
+      {isHidden ? (
+        <div className="flex flex-col items-center opacity-20">
+          <div className="w-8 h-8 rounded-full border-2 border-white mb-1" />
+          <div className="w-12 h-1 bg-white rounded-full" />
+        </div>
+      ) : (
+        <div className={`flex flex-col items-center ${card.color}`}>
+          <span className="text-2xl md:text-4xl font-black leading-none">{card.value}</span>
+          <span className="text-xl md:text-3xl">{card.suit}</span>
+          <div className="absolute top-2 left-2 text-[10px] font-bold opacity-50">{card.value}</div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
